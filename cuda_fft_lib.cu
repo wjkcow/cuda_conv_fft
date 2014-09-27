@@ -23,10 +23,10 @@ __global__ void cuda_multi_add(fComplex * x_base, fComplex * y, fComplex * z_bas
 	int img_stack      =  blockIdx.x;  // 1 - 5000
 
 	fComplex *x = x_base + img_stack * xy * ch;
-	fComplex *z = z_base + img_stack * xy * ch;
+	fComplex *z = z_base + img_stack * xy;
 	for(int c = 0; c < ch ; c++){
     	for(int i = 0; i < xy ; i ++){
-    		mulAndScale(x[c * xy + i], y[c * xy + i], z[xy + i], 1.0/xy);
+    		mulAndScale(x[c * xy + i], y[c * xy + i], z[i], 1.0/xy/xy);
     	}
 	}
 }
@@ -84,7 +84,43 @@ extern "C" bool batch_ifft2(fComplex * gpuIn, float * gpuOut, int x, int y, int 
 
 
 
+extern "C" bool conv_cufft(float * cpuImg, float * cpuFilter, float *ans,
+	int x, int y, int ch, int batch, int f_batch){
 
+	float * gpuImg, * gpuFilter, * gpuAns, *gpuProd;
+	fComplex *gpuImg_C, *gpuFilter_C;
+	size_t img_size = (size_t) x * y * ch * batch;
+	size_t filter_size = (size_t) x * y * ch * f_batch;
+	size_t ans_size = (size_t) x * y * batch;
+
+	cuda_init();
+	checkCudaErrors(cudaMalloc((void **)&gpuProd,  ans_size * sizeof(fComplex)));
+	checkCudaErrors(cudaMalloc((void **)&gpuImg,  img_size * sizeof(float)));
+	checkCudaErrors(cudaMalloc((void **)&gpuFilter,  filter_size * sizeof(float)));
+	checkCudaErrors(cudaMalloc((void **)&gpuAns,  ans_size * sizeof(float)));
+
+	checkCudaErrors(cudaMemcpy(gpuImg, cpuImg, img_size * sizeof(float), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMemcpy(gpuFilter, fiter, filter_size * sizeof(float), cudaMemcpyHostToDevice));
+
+	gpuImg_C = batch_fft2(gpuImg, x, y, ch * batch );
+	gpuFilter_C = batch_fft2(gpuFilter, x, y, ch * f_batch );
+
+	for(int b = 0; b < f_batch; ++ b){
+		fComplex *myFilter = gpuFilter_C + b * x * y * ch;
+		multi_sum_norm(gpuImg_C, gpuFilter_C, gpuProd, x*y , ch, batch);
+		batch_ifft2(gpuProd, gpuAns , x, y, batch);
+		float *my_cpu_ans = ans + b * x * y * batch;
+		checkCudaErrors(cudaMemcpy(gpuR1, gpuAns, x * y * batch* sizeof(float), cudaMemcpyDeviceToHost));
+	}
+
+	checkCudaErrors(cudaFree(gpuProd));
+	checkCudaErrors(cudaFree(gpuImg));
+	checkCudaErrors(cudaFree(gpuFilter));
+	checkCudaErrors(cudaFree(gpuAns));
+	checkCudaErrors(cudaFree(gpuImg_C));
+	checkCudaErrors(cudaFree(gpuFilter_C));
+	return true;
+}
 
 
 
