@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <omp.h>
 
 // Include CUDA runtime and CUFFT
 #include <cuda_runtime.h>
@@ -93,10 +94,6 @@ extern "C" bool conv_cufft(float * cpuImg, float * cpuFilter, float *ans,
 	size_t filter_size = (size_t) x * y * ch * f_batch;
 	size_t ans_size = (size_t) x * y * batch;
 	size_t conv_size = (size_t) x * (y/2 + 1) * batch;
-//
-//	fComplex *cpuProd =(fComplex *) malloc(ans_size * sizeof(fComplex));
-//
-//	cuda_init();
 	checkCudaErrors(cudaMalloc((void **)&gpuProd,  conv_size * sizeof(fComplex)));
 	checkCudaErrors(cudaMalloc((void **)&gpuImg,  img_size * sizeof(float)));
 	checkCudaErrors(cudaMalloc((void **)&gpuFilter,  filter_size * sizeof(float)));
@@ -113,17 +110,11 @@ extern "C" bool conv_cufft(float * cpuImg, float * cpuFilter, float *ans,
 		checkCudaErrors(cudaMemset(gpuProd, 0, conv_size * sizeof(fComplex)));
 		fComplex *myFilter = gpuFilter_C + b * x * (y / 2 + 1) * ch;
 		multi_sum_norm(gpuImg_C, myFilter, gpuProd, x*(y / 2 + 1) , ch, batch, (float)x*y);
-//		checkCudaErrors(cudaMemcpy(cpuProd, gpuProd, ans_size * sizeof(float), cudaMemcpyDeviceToHost));
-//
-	//	for(int j = 0; j < 18; ++j){
-		//	fprintf(stderr, "%d %f, %f \n",j,cpuProd[j].x , cpuProd[j].y );
-		//}
 
 		batch_ifft2(gpuProd, gpuAns , x, y, batch);
 		my_cpu_ans = my_cpu_ans + x * y * batch;
 		fprintf(stderr,"copying to %p",my_cpu_ans);
 		checkCudaErrors(cudaMemcpy(my_cpu_ans, gpuAns, x * y * batch* sizeof(float), cudaMemcpyDeviceToHost));
-		fprintf(stderr, "copy end");
 	}
 
 	checkCudaErrors(cudaFree(gpuProd));
@@ -138,5 +129,35 @@ extern "C" bool conv_cufft(float * cpuImg, float * cpuFilter, float *ans,
 
 
 
+extern "C" bool mGpu_conv(float * cpuImg, float * cpuFilter, float *ans,
+	int x, int y, int ch, int batch, int f_batch){
+	int num_gpus = 0;
+	cudaGetDeviceCount(&num_gpus);
+
+	int gpuBatch = f_batch / num_gpus;
+	int lastBatch = f_batch - gpuBatch * (num_gpus - 1);
+	omp_set_num_threads(num_gpus);
+	fprintf(stderr,"begin ");
+
+	#pragma omp parallel
+	{
+		unsigned int cpu_thread_id = omp_get_thread_num();
+		cuda_init(cpu_thread_id);
+		if(cpu_thread_id == num_gpus - 1){
+			conv_cufft(cpuImg, cpuFilter + (size_t)(cpu_thread_id )*
+				x*y*ch*gpuBatch, ans + (size_t)(cpu_thread_id)* batch *x*y ,
+				x, y, ch, batch, lastBatch);
+		} else{
+			conv_cufft(cpuImg, cpuFilter + (size_t)(cpu_thread_id )*
+				x*y*ch*gpuBatch, ans + (size_t)(cpu_thread_id)* batch *x*y ,
+				x, y, ch, batch, gpuBatch);
+		}
+
+
+	}
+	fprintf(stderr,"DONE ");
+	return true;
+
+}
 
 

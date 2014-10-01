@@ -9,7 +9,19 @@
 #include "helper.h"
 #include "cuda_fft_lib.h"
 //tes of conv
-
+void test5(){
+	fComplex *gpuImg_C, *gpuFilter_C, * gpuProd;
+	float *gpuImg, * gpuFilter;
+	float *gpuAns;
+	int ch = 3;
+	int xy = 9;
+	int stack  = 2;
+	float * img = (float *) malloc((size_t)96 * 96 * 3 * 5000* sizeof(float));
+	float * filter = (float *) malloc((size_t)96 * 96 *3 * 96 *sizeof(float));
+	float * cpuAns = (float *) malloc((size_t)96 *96*5000 *96  * sizeof(float));
+	mGpu_conv(img, filter, cpuAns,
+		96, 96, 3, 5000, 96);
+}
 void test4(){
 
 
@@ -171,7 +183,7 @@ void test1(){
 }
 int main(int argc, char  **argvs)
 {
-	test4();
+	test5();
 
 	return 0;
 }
